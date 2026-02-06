@@ -4,7 +4,6 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "uvicorn app:app --host 0.0.0.0 --port $PORT"
-healthcheckPath = "/api/status"
-healthcheckTimeout = 60
+# healthcheck отключён — при первом запуске может мешать
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
