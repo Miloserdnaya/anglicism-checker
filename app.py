@@ -140,6 +140,9 @@ def get_html() -> str:
 
     <div class="card" id="results-card" style="display:none">
         <h3>Результаты</h3>
+        <p style="margin-bottom: 0.5rem;">
+            <button class="secondary" onclick="downloadCSV()">Скачать CSV</button>
+        </p>
         <table id="results"></table>
     </div>
 
@@ -191,24 +194,47 @@ def get_html() -> str:
             showResults(data);
         }
 
+        let lastResults = [];
+
         function showResults(data) {
+            lastResults = data;
             const card = document.getElementById('results-card');
             const table = document.getElementById('results');
             let html = '<tr><th>Слово</th><th>В словаре</th><th>В каком словаре</th><th>Рекомендация</th></tr>';
             for (const row of data) {
-                const inDict = row.in_dict 
-                    ? '<span class="ok">да</span>' 
-                    : '<span class="anglicism">нет</span>';
+                const inDict = row.in_dict ? 'да' : 'нет';
                 const dictList = row.in_official_dicts && row.in_official_dicts.length
                     ? [...new Set(row.in_official_dicts.map(d => d.dict))].join('; ')
                     : '—';
                 const recommendation = row.in_dict 
                     ? 'можно использовать' 
                     : (row.russian_equivalent ? 'замените на: ' + row.russian_equivalent : '—');
-                html += `<tr><td>${row.word}</td><td>${inDict}</td><td>${dictList}</td><td>${recommendation}</td></tr>`;
+                const inDictHtml = row.in_dict ? '<span class="ok">да</span>' : '<span class="anglicism">нет</span>';
+                html += `<tr><td>${row.word}</td><td>${inDictHtml}</td><td>${dictList}</td><td>${recommendation}</td></tr>`;
             }
             table.innerHTML = html;
             card.style.display = 'block';
+        }
+
+        function downloadCSV() {
+            if (!lastResults.length) return;
+            const escape = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+            const header = 'Слово;В словаре;В каком словаре;Рекомендация';
+            const rows = lastResults.map(r => {
+                const inDict = r.in_dict ? 'да' : 'нет';
+                const dictList = r.in_official_dicts?.length
+                    ? [...new Set(r.in_official_dicts.map(d => d.dict))].join('; ')
+                    : '—';
+                const rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
+                return [r.word, inDict, dictList, rec].map(escape).join(';');
+            });
+            const csv = '\\uFEFF' + header + '\\n' + rows.join('\\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'anglicism-check-results.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
         }
 
         getStatus();
