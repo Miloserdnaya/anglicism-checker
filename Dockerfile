@@ -11,8 +11,8 @@ COPY app.py checker.py dictionaries.py ./
 RUN mkdir -p /app/data/pdf
 
 ENV PORT=8000
-EXPOSE $PORT
-
 ENV DATA_DIR=/app/data
-# Railway передаёт PORT динамически — используем переменную окружения
-CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
+EXPOSE 8000
+
+# app.py читает PORT из переменной окружения Railway
+CMD ["python", "app.py"]
