@@ -108,10 +108,13 @@ def analyze_word(word: str, dict_manager=None) -> dict:
 
 
 def extract_words_from_html(html: str) -> list[str]:
-    """Извлекает потенциальные заимствования из HTML (слова из списка эквивалентов)."""
-    text = re.sub(r"<[^>]+>", " ", html).lower()
-    found = []
-    for w in RUSSIAN_EQUIVALENTS:
-        if re.search(rf"\b{re.escape(w)}\b", text):
-            found.append(w)
-    return list(dict.fromkeys(found))
+    """Извлекает все слова со страницы для проверки по словарям."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    words = set()
+    # Все кириллические слова (3+ буквы)
+    for m in re.finditer(r"\b[а-яё][а-яё\-]{2,}\b", text, re.I):
+        words.add(m.group(0).lower())
+    # Латиница — потенциальные англицизмы (design, content, skill и т.д.)
+    for m in re.finditer(r"\b[a-z][a-z\-]{2,}\b", text):
+        words.add(m.group(0).lower())
+    return sorted(words)
