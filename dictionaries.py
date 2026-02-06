@@ -80,10 +80,11 @@ class DictionaryManager:
 
     def _extract_words_from_text(self, text: str) -> set[str]:
         """Извлекает слова из текста (кириллица + латиница)."""
-        # Убираем combining diacritics (ме́нтор → ментор) — знаки ударения в PDF
-        import unicodedata
-        text = unicodedata.normalize("NFD", text)
-        text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+        # Убираем только знак ударения U+0301 (ме́нтор → ментор)
+        # Не используем NFD — иначе й разлагается в и+breve и превращается в и (дизайн→дизаин)
+        text = text.replace("\u0301", "")
+        # Склеиваем слова, разорванные пробелом из-за ударения (нейросе́ ть → нейросеть)
+        text = re.sub(r"([а-яёА-ЯЁ]) ([ть]+)\b", r"\1\2", text)
         # Убираем скобки, оставляя содержимое (орфоэпический: ме[н']тор → мен'тор)
         text_clean = re.sub(r"\[([^\]]*)\]", r"\1", text)
         words = set()
