@@ -154,8 +154,44 @@ class DictionaryManager:
         except Exception:
             return False
 
+    def _get_lemma(self, word: str) -> Optional[str]:
+        """Возвращает начальную форму (лемму) для падежей, склонений, мн. числа."""
+        if not re.search(r"[а-яё]", word.lower()) or len(word) < 3:
+            return None
+        try:
+            import pymorphy2
+            morph = getattr(self, "_morph", None)
+            if morph is None:
+                self._morph = pymorphy2.MorphAnalyzer()
+                morph = self._morph
+            parsed = morph.parse(word)[0]
+            return parsed.normal_form.lower() if parsed else None
+        except ImportError:
+            return self._get_lemma_simple(word)
+        except Exception:
+            return self._get_lemma_simple(word)
+
+    def _get_lemma_simple(self, word: str) -> Optional[str]:
+        """Простая эвристика: срез типичных окончаний (fallback без pymorphy2)."""
+        w = word.lower()
+        for suf in ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев", "ам", "ям", "ом", "ем", "ой", "ей", "а", "я", "у", "ю", "о", "е", "ы", "и"):
+            if len(w) > len(suf) + 2 and w.endswith(suf):
+                candidate = w[:-len(suf)]
+                if not candidate or not re.match(r"^[а-яё]+$", candidate):
+                    continue
+                # Прилаг. на -овый: брендинговом → брендингов → брендинг
+                if candidate.endswith(("ов", "ев")) and len(candidate) > 3:
+                    base = candidate[:-2]
+                    if base and re.match(r"^[а-яё]+$", base):
+                        return base
+                # Прилаг. на -ный: креативного → креативн → креативный
+                if suf in ("ого", "ему", "его", "ом", "ем") and candidate.endswith("н") and len(candidate) > 2:
+                    return candidate + "ый"  # креативн → креативный
+                return candidate
+        return None
+
     def search(self, word: str) -> list[dict]:
-        """Ищет слово в словарях. Возвращает список {dict, page}."""
+        """Ищет слово в словарях (включая словоформы: падежи, склонения, мн. число)."""
         if not self._loaded:
             self.load_index()
         if not self._index:
@@ -169,6 +205,14 @@ class DictionaryManager:
         w_yo = w.replace("е", "ё")
         if w_yo in self._index:
             return self._index[w_yo]
+        # Поиск по лемме (брендинга → брендинг)
+        lemma = self._get_lemma(word)
+        if lemma:
+            lemma_norm = self._normalize_word(lemma)
+            if lemma_norm in self._index:
+                return self._index[lemma_norm]
+            if lemma_norm.replace("е", "ё") in self._index:
+                return self._index[lemma_norm.replace("е", "ё")]
         return []
 
     @property
