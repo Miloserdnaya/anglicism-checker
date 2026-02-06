@@ -4,8 +4,13 @@ import re
 from typing import Optional
 
 # Слова, которые есть в официальных словарях, но могут не находиться в нашем индексе
-# (например, из-за особенностей PDF или другой редакции). Помечаем как «можно использовать».
-KNOWN_IN_DICTS = {"ментор", "менторы"}
+# (пустой индекс на Railway, особенности PDF). Помечаем как «можно использовать».
+KNOWN_IN_DICTS = {"ментор", "менторы", "дизайн"}
+KNOWN_IN_DICTS_SOURCE = {
+    "ментор": "Орфоэпический словарь (ИРЯ РАН)",
+    "менторы": "Орфоэпический словарь (ИРЯ РАН)",
+    "дизайн": "Словарь иностранных слов (ИЛИ РАН)",
+}
 
 # Русские эквиваленты для слов, которых нет в словарях
 RUSSIAN_EQUIVALENTS = {
@@ -85,7 +90,8 @@ def analyze_word(word: str, dict_manager=None) -> dict:
     if in_dict:
         dict_list = [{"dict": d["dict"], "page": d["page"]} for d in in_dicts]
         if not dict_list and wl in KNOWN_IN_DICTS:
-            dict_list = [{"dict": "Орфоэпический словарь (ИРЯ РАН)", "page": None}]
+            dict_name = KNOWN_IN_DICTS_SOURCE.get(wl, "Официальные словари РФ")
+            dict_list = [{"dict": dict_name, "page": None}]
         return {
             "word": word,
             "in_dict": True,
