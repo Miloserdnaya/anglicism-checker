@@ -106,15 +106,74 @@ def analyze_word(word: str, dict_manager=None) -> dict:
             "russian_equivalent": russian_equivalent,
         }
 
+# CSS: свойства, значения, псевдоклассы — не контент сайта
+_CSS_ARTIFACTS = frozenset({
+    "absolute", "active", "after", "all", "alt", "alpha", "auto",
+    "before", "block", "bold", "both", "bottom", "capitalize", "center",
+    "circle", "column", "columns", "content", "cover", "dashed", "dotted",
+    "embed", "end", "even", "fixed", "flex", "focus", "full", "grid",
+    "hidden", "hover", "inherit", "initial", "inline", "inset", "italic",
+    "justify", "left", "length", "line", "list", "lowercase", "medium",
+    "middle", "none", "normal", "nowrap", "odd", "overflow", "pointer",
+    "relative", "repeat", "right", "rotate", "row", "rows", "scale",
+    "scroll", "self", "solid", "space", "start", "static", "stretch",
+    "sticky", "thin", "top", "transparent", "underline", "unset", "uppercase",
+    "visible", "wrapper", "wrap",
+})
+_CSS_PREFIX = re.compile(
+    r"^(align|flex|grid|justify|place|gap|padding|margin|object|overflow|position|"
+    r"text|font|border|outline|background|color|width|height|min|max|inset|"
+    r"flex|grid|order|grow|shrink|basis|aspect|transition|transform|animation|"
+    r"advance|address|has|is|wrapper)-",
+    re.I
+)
+_CSS_SUFFIX = re.compile(
+    r"-(content|items|self|wrapper|visible|hidden|desktop|mobile|height|width|"
+    r"gap|padding|margin|background|radius|color|size|top|bottom|left|right|row|col)s?$",
+    re.I
+)
+
+# JavaScript / DOM / API — остатки скриптов, не контент
+_SCRIPT_ARTIFACTS = frozenset({
+    "const", "let", "var", "function", "return", "typeof", "undefined", "null",
+    "document", "window", "create", "createelement", "appendchild", "queryselector", "getelementbyid", "addeventlistener", "dataset", "innerhtml",
+    "outerhtml", "textcontent", "navigator", "localstorage", "sessionstorage",
+    "context", "counter", "dataset", "display",
+})
+
 
 def extract_words_from_html(html: str) -> list[str]:
-    """Извлекает все слова со страницы для проверки по словарям."""
+    """Извлекает все слова со страницы для проверки по словарям.
+    Игнорирует script, style, class, data-* и CSS-артефакты — не контент."""
+    # Удаляем script, style, noscript — там JS/CSS, не контент
+    html = re.sub(r"<script[^>]*>[\s\S]*?</script>", " ", html, flags=re.I)
+    html = re.sub(r"<style[^>]*>[\s\S]*?</style>", " ", html, flags=re.I)
+    html = re.sub(r"<noscript[^>]*>[\s\S]*?</noscript>", " ", html, flags=re.I)
+    html = re.sub(r"<!--[\s\S]*?-->", " ", html)
+    html = re.sub(r'\bclass\s*=\s*["\'][^"\']*["\']', ' class=""', html, flags=re.I)
+    html = re.sub(r'\bstyle\s*=\s*["\'][^"\']*["\']', ' style=""', html, flags=re.I)
+    html = re.sub(r'\b(?:id|data-[a-z0-9\-]+|on\w+)\s*=\s*["\'][^"\']*["\']', ' ', html, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", html)
     words = set()
-    # Все кириллические слова (3+ буквы)
+
+    def _is_technical_artifact(w: str) -> bool:
+        if w in _CSS_ARTIFACTS or w in _SCRIPT_ARTIFACTS:
+            return True
+        if "-" in w and (_CSS_PREFIX.search(w) or _CSS_SUFFIX.search(w)):
+            return True
+        # Короткие латинские без гласных (aaa, afadac) — class/id, не контент
+        if len(w) <= 6 and w.isalpha() and re.match(r"^[a-z]+$", w):
+            vowels = sum(1 for c in w if c in "aeiouy")
+            if vowels == 0 or (len(w) >= 4 and vowels <= 1):
+                return True
+        return False
+
     for m in re.finditer(r"\b[а-яё][а-яё\-]{2,}\b", text, re.I):
-        words.add(m.group(0).lower())
-    # Латиница — потенциальные англицизмы (design, content, skill и т.д.)
-    for m in re.finditer(r"\b[a-z][a-z\-]{2,}\b", text):
-        words.add(m.group(0).lower())
+        w = m.group(0).lower()
+        if not _is_technical_artifact(w):
+            words.add(w)
+    for m in re.finditer(r"\b[a-z][a-z\-_]{2,}\b", text):
+        w = m.group(0).lower()
+        if not _is_technical_artifact(w):
+            words.add(w)
     return sorted(words)

@@ -155,9 +155,17 @@ class DictionaryManager:
             return False
 
     def _get_lemma(self, word: str) -> Optional[str]:
-        """Возвращает начальную форму (лемму) для падежей, склонений, мн. числа."""
-        if not re.search(r"[а-яё]", word.lower()) or len(word) < 3:
+        """Возвращает начальную форму (лемму) для падежей, склонений, мн. числа.
+        Для составных слов с дефисом (арт-директором) сначала пробуем эвристику — pymorphy2
+        может давать некорректный результат."""
+        w = word.lower()
+        if not re.search(r"[а-яё]", w) or len(word) < 3:
             return None
+        # Составные слова: арт-директорами → арт-директор (эвристика надёжнее)
+        if "-" in w:
+            simple = self._get_lemma_simple(word)
+            if simple:
+                return simple
         try:
             import pymorphy2
             morph = getattr(self, "_morph", None)
@@ -172,17 +180,19 @@ class DictionaryManager:
             return self._get_lemma_simple(word)
 
     def _get_lemma_simple(self, word: str) -> Optional[str]:
-        """Простая эвристика: срез типичных окончаний (fallback без pymorphy2)."""
+        """Простая эвристика: срез типичных окончаний (fallback без pymorphy2).
+        Поддерживает составные слова с дефисом: арт-директорами → арт-директор."""
         w = word.lower()
+        word_ok = re.compile(r"^[а-яё\-]+$")  # буквы и дефис для составных
         for suf in ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев", "ам", "ям", "ом", "ем", "ой", "ей", "а", "я", "у", "ю", "о", "е", "ы", "и"):
             if len(w) > len(suf) + 2 and w.endswith(suf):
                 candidate = w[:-len(suf)]
-                if not candidate or not re.match(r"^[а-яё]+$", candidate):
+                if not candidate or not word_ok.match(candidate):
                     continue
                 # Прилаг. на -овый: брендинговом → брендингов → брендинг
                 if candidate.endswith(("ов", "ев")) and len(candidate) > 3:
                     base = candidate[:-2]
-                    if base and re.match(r"^[а-яё]+$", base):
+                    if base and word_ok.match(base):
                         return base
                 # Прилаг. на -ный: креативного → креативн → креативный
                 if suf in ("ого", "ему", "его", "ом", "ем") and candidate.endswith("н") and len(candidate) > 2:
