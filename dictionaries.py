@@ -205,6 +205,10 @@ class DictionaryManager:
                 if not candidate or not word_ok.match(candidate):
                     continue
                 ending = "ть" + ("ся" if reflexive else "")
+                if index_lookup:
+                    formed = candidate + ending
+                    if formed in index_lookup:
+                        return formed
                 return candidate + ending
 
         adjective_suffixes = {"ого", "ему", "его", "ом", "ем", "ой", "ою", "ею", "ую", "ые", "ых", "ыми", "ими"}
@@ -231,6 +235,37 @@ class DictionaryManager:
                     if candidate not in index_lookup and candidate + "я" in index_lookup:
                         return candidate + "я"
                 return candidate
+
+        verb_present_suffixes = (
+            "ете", "ёте", "ите",
+            "ем", "ём", "им",
+            "ут", "ют", "ат", "ят",
+            "ешь", "ёшь", "ишь",
+            "ет", "ёт", "ит",
+            "у", "ю"
+        )
+        for suf in verb_present_suffixes:
+            if len(w) > len(suf) + 1 and w.endswith(suf):
+                stem = w[:-len(suf)]
+                if not stem or not word_ok.match(stem):
+                    continue
+                endings_to_try = ["ть", "ти", "ить", "ать", "еть"]
+                if stem.endswith(("ч", "щ")):
+                    endings_to_try.append("ь")
+                reflexive_tail = "ся" if reflexive else ""
+                def build_candidates(base: str) -> list[str]:
+                    return [base + end + reflexive_tail for end in endings_to_try if base]
+
+                candidates = build_candidates(stem)
+                trimmed = stem[:-1] if len(stem) > 2 else ""
+                if trimmed:
+                    candidates += build_candidates(trimmed)
+                if index_lookup:
+                    for infinitive in candidates:
+                        if infinitive in index_lookup:
+                            return infinitive
+                # попытка по умолчанию
+                return candidates[0] if candidates else None
 
         return None
 
