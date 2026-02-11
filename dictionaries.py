@@ -187,8 +187,19 @@ class DictionaryManager:
         if w.endswith(("ся", "сь")):
             reflexive = True
             w = w[:-2]
+        reflexive_tail = "ся" if reflexive else ""
         word_ok = re.compile(r"^[а-яё\-]+$")  # буквы и дефис для составных
         index_lookup = getattr(self, "_index", {}) or {}
+
+        def _pick_form(forms: list[str]) -> Optional[str]:
+            forms = [f for f in forms if f]
+            if not forms:
+                return None
+            if index_lookup:
+                for form in forms:
+                    if form in index_lookup:
+                        return form
+            return forms[0]
 
         if w.endswith("ею") and len(w) > 3:
             base = w[:-1]  # убираем только "ю": музею → музе, Андрею → Андре
@@ -204,12 +215,62 @@ class DictionaryManager:
                 candidate = w[:-len(suf)]
                 if not candidate or not word_ok.match(candidate):
                     continue
-                ending = "ть" + ("ся" if reflexive else "")
-                if index_lookup:
-                    formed = candidate + ending
-                    if formed in index_lookup:
-                        return formed
-                return candidate + ending
+                forms = [
+                    candidate + "ть" + reflexive_tail,
+                    candidate + "ти" + reflexive_tail,
+                ]
+                picked = _pick_form(forms)
+                if picked:
+                    return picked
+
+        verb_present_suffixes = (
+            "ете", "ёте", "ите",
+            "ем", "ём", "им",
+            "ут", "ют", "ат", "ят",
+            "ешь", "ёшь", "ишь",
+            "ет", "ёт", "ит",
+            "у", "ю",
+            "й", "йте", "ьте",
+        )
+        for suf in verb_present_suffixes:
+            if len(w) > len(suf) + 1 and w.endswith(suf):
+                stem = w[:-len(suf)]
+                if not stem or not word_ok.match(stem):
+                    continue
+                endings_to_try = ["ть", "ти", "ить", "ать", "ять", "еть"]
+                if stem.endswith(("ч", "щ")):
+                    endings_to_try.append("ь")
+                candidates = [
+                    stem + end + reflexive_tail for end in endings_to_try if stem
+                ]
+                trimmed = stem[:-1] if len(stem) > 2 else ""
+                if trimmed:
+                    candidates += [
+                        trimmed + end + reflexive_tail for end in endings_to_try
+                    ]
+                picked = _pick_form(candidates)
+                if picked:
+                    return picked
+
+        gerund_suffixes = {
+            "вшись": ["ться"],
+            "шись": ["ться"],
+            "вши": ["ть", "ти"],
+            "ши": ["ть", "ти"],
+            "в": ["ть", "ти"],
+            "я": ["ть", "ти"],
+            "ючи": ["ть", "ти"],
+            "учи": ["ть", "ти"],
+        }
+        for suf, endings in gerund_suffixes.items():
+            if len(w) > len(suf) + 1 and w.endswith(suf):
+                stem = w[:-len(suf)]
+                if not stem or not word_ok.match(stem):
+                    continue
+                candidates = [stem + end + reflexive_tail for end in endings]
+                picked = _pick_form(candidates)
+                if picked:
+                    return picked
 
         adjective_suffixes = {"ого", "ему", "его", "ом", "ем", "ой", "ою", "ею", "ую", "ые", "ых", "ыми", "ими"}
         multi_suffixes = ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев",
@@ -229,43 +290,32 @@ class DictionaryManager:
                 # Прилаг. на -ный: креативного → креативн → креативный
                 if suf in adjective_suffixes and candidate.endswith("н") and len(candidate) > 2:
                     return candidate + "ый"  # востребованн → востребованный
-                if index_lookup:
-                    if candidate not in index_lookup and candidate + "й" in index_lookup:
-                        return candidate + "й"
-                    if candidate not in index_lookup and candidate + "я" in index_lookup:
-                        return candidate + "я"
-                return candidate
+                picked = _pick_form(
+                    [
+                        candidate,
+                        candidate + "й",
+                        candidate + "я",
+                        candidate + "ый",
+                        candidate + "ий",
+                        candidate + "ой",
+                    ]
+                )
+                if picked:
+                    return picked
 
-        verb_present_suffixes = (
-            "ете", "ёте", "ите",
-            "ем", "ём", "им",
-            "ут", "ют", "ат", "ят",
-            "ешь", "ёшь", "ишь",
-            "ет", "ёт", "ит",
-            "у", "ю"
-        )
-        for suf in verb_present_suffixes:
+        short_adj_suffixes = ("на", "но", "ны", "ен", "ено", "ены", "ён", "ёно", "ёны")
+        for suf in short_adj_suffixes:
             if len(w) > len(suf) + 1 and w.endswith(suf):
-                stem = w[:-len(suf)]
+                if suf in ("на", "но", "ны") and w[-2] == "н":
+                    stem = w[:-1]
+                else:
+                    stem = w[:-len(suf)]
                 if not stem or not word_ok.match(stem):
                     continue
-                endings_to_try = ["ть", "ти", "ить", "ать", "еть"]
-                if stem.endswith(("ч", "щ")):
-                    endings_to_try.append("ь")
-                reflexive_tail = "ся" if reflexive else ""
-                def build_candidates(base: str) -> list[str]:
-                    return [base + end + reflexive_tail for end in endings_to_try if base]
-
-                candidates = build_candidates(stem)
-                trimmed = stem[:-1] if len(stem) > 2 else ""
-                if trimmed:
-                    candidates += build_candidates(trimmed)
-                if index_lookup:
-                    for infinitive in candidates:
-                        if infinitive in index_lookup:
-                            return infinitive
-                # попытка по умолчанию
-                return candidates[0] if candidates else None
+                candidates = [stem + "ый", stem + "ий", stem + "ой"]
+                picked = _pick_form(candidates)
+                if picked:
+                    return picked
 
         return None
 
