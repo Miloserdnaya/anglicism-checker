@@ -181,10 +181,38 @@ class DictionaryManager:
 
     def _get_lemma_simple(self, word: str) -> Optional[str]:
         """Простая эвристика: срез типичных окончаний (fallback без pymorphy2).
-        Поддерживает составные слова с дефисом: арт-директорами → арт-директор."""
+        Поддерживает составные слова и простые глагольные формы."""
         w = word.lower()
+        reflexive = False
+        if w.endswith(("ся", "сь")):
+            reflexive = True
+            w = w[:-2]
         word_ok = re.compile(r"^[а-яё\-]+$")  # буквы и дефис для составных
-        for suf in ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев", "ам", "ям", "ом", "ем", "ой", "ей", "а", "я", "у", "ю", "о", "е", "ы", "и"):
+        index_lookup = getattr(self, "_index", {}) or {}
+
+        if w.endswith("ею") and len(w) > 3:
+            base = w[:-1]  # убираем только "ю": музею → музе, Андрею → Андре
+            if index_lookup:
+                if base + "й" in index_lookup:
+                    return base + "й"
+                if base + "я" in index_lookup:
+                    return base + "я"
+
+        verb_past_suffixes = ("л", "ла", "ло", "ли")
+        for suf in verb_past_suffixes:
+            if len(w) > len(suf) + 2 and w.endswith(suf):
+                candidate = w[:-len(suf)]
+                if not candidate or not word_ok.match(candidate):
+                    continue
+                ending = "ть" + ("ся" if reflexive else "")
+                return candidate + ending
+
+        adjective_suffixes = {"ого", "ему", "его", "ом", "ем", "ой", "ою", "ею", "ую", "ые", "ых", "ыми", "ими"}
+        multi_suffixes = ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев",
+                          "ам", "ям", "ом", "ем", "ой", "ей", "ую", "ые", "ых", "ыми", "ими", "ою", "ею")
+        single_suffixes = ("а", "я", "у", "ю", "о", "е", "ы", "и")
+        general_suffixes = multi_suffixes + single_suffixes
+        for suf in general_suffixes:
             if len(w) > len(suf) + 2 and w.endswith(suf):
                 candidate = w[:-len(suf)]
                 if not candidate or not word_ok.match(candidate):
@@ -195,9 +223,15 @@ class DictionaryManager:
                     if base and word_ok.match(base):
                         return base
                 # Прилаг. на -ный: креативного → креативн → креативный
-                if suf in ("ого", "ему", "его", "ом", "ем") and candidate.endswith("н") and len(candidate) > 2:
-                    return candidate + "ый"  # креативн → креативный
+                if suf in adjective_suffixes and candidate.endswith("н") and len(candidate) > 2:
+                    return candidate + "ый"  # востребованн → востребованный
+                if index_lookup:
+                    if candidate not in index_lookup and candidate + "й" in index_lookup:
+                        return candidate + "й"
+                    if candidate not in index_lookup and candidate + "я" in index_lookup:
+                        return candidate + "я"
                 return candidate
+
         return None
 
     def search(self, word: str) -> list[dict]:
