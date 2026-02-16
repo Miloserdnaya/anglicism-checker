@@ -10,8 +10,41 @@ KNOWN_IN_DICTS_SOURCE = {
     "менторы": "Орфоэпический словарь (ИРЯ РАН)",
 }
 
-# Русские эквиваленты для слов, которых нет в словарях
+# Слова, которые не проверяем (частицы, суффиксы, артефакты)
+SKIP_WORDS = frozenset({"ась"})
+
+# Имена (проверяем по базовой форме)
+RUSSIAN_FIRST_NAMES = frozenset({
+    "ангелина", "мария", "анна", "елена", "ольга", "наталья", "ирина", "татьяна",
+    "екатерина", "светлана", "юлия", "александра", "дарья", "полина", "алена",
+})
+# Фамилии (частые)
+RUSSIAN_SURNAMES = frozenset({
+    "вовк", "иванов", "петров", "сидоров", "козлов", "смирнов", "кузнецов",
+    "попов", "соколов", "михайлов", "новиков", "федоров", "морозов", "волков",
+})
+
+# Синонимы для слов, которые УЖЕ в словаре (альтернативы на выбор)
+DICT_WORD_SYNONYMS = {
+    "soft": "мягкий",
+    "skills": "навыки, умения",
+    "ментор": "наставник, советник",
+    "маркетолог": "специалист по продвижению",
+    "промпт": "запрос, формулировка задачи",
+    "инсайт": "понимание, прозрение",
+    "воркшоп": "мастер-класс, практикум",
+    "лендинг": "посадочная страница",
+    "оффер": "предложение, оферта",
+    "контент": "материалы, содержимое",
+    "дизайн": "оформление, проектирование",
+}
+
+# Русские эквиваленты для слов, которых нет в словарях (англ. → рус.)
 RUSSIAN_EQUIVALENTS = {
+    "skills": "навыки, умения",
+    "soft": "мягкий",
+    "tldv": "tldv (название сервиса, оставить)",
+    "кастдев": "развитие клиентской базы, CustDev",
     "креатив": "творчество",
     "креативный": "творческий",
     "креативность": "творчество",
@@ -48,6 +81,10 @@ RUSSIAN_EQUIVALENTS = {
     "хайлайты": "основное, главное",
     "комьюнити": "сообщество",
     "воркшоп": "мастер-класс",
+    "онлайн-школа": "школа с дистанционным обучением",
+    "лендинг": "посадочная страница",
+    "оффер": "предложение, оферта",
+    "промпт": "запрос, формулировка задачи",
     "онбординг": "введение в должность",
     "апдейт": "обновление",
     "дайджест": "обзор",
@@ -75,10 +112,17 @@ def get_equivalent_dict_sources(equivalent: str, dict_manager=None) -> list[str]
     return list({d["dict"] for d in found}) if found else []
 
 
+def _get_lemma_for_lookup(word: str, dict_manager) -> Optional[str]:
+    """Возвращает лемму для поиска эквивалента (инсайтов → инсайт)."""
+    if not dict_manager or not hasattr(dict_manager, "_get_lemma"):
+        return None
+    return dict_manager._get_lemma(word)
+
+
 def analyze_word(word: str, dict_manager=None, occurrences: Optional[List] = None) -> dict:
     """
     Проверяет слово по официальным словарям.
-    - Если слово в словаре → можно использовать
+    - Если слово в словаре → можно использовать (+ синонимы)
     - Если слова нет в словаре → нет в словаре, рекомендуемая замена
     """
     word = word.strip()
@@ -86,25 +130,44 @@ def analyze_word(word: str, dict_manager=None, occurrences: Optional[List] = Non
         return {}
     wl = word.lower()
 
+    if wl in SKIP_WORDS:
+        return {"word": word, "in_dict": True, "status": "пропущено (частица/артефакт)",
+                "in_official_dicts": [], "russian_equivalent": None, "occurrences": occurrences or []}
+
     in_dicts = []
+    lemma = None
     if dict_manager and dict_manager.is_ready:
         in_dicts = dict_manager.search(word)
+        if not in_dicts:
+            lemma = _get_lemma_for_lookup(word, dict_manager)
 
     # Учитываем и индекс, и явный список слов, зафиксированных в словарях
     in_dict = len(in_dicts) > 0 or wl in KNOWN_IN_DICTS
-    russian_equivalent = RUSSIAN_EQUIVALENTS.get(wl)
+    russian_equivalent = RUSSIAN_EQUIVALENTS.get(wl) or (lemma and RUSSIAN_EQUIVALENTS.get(lemma))
 
     equivalent_in_dicts = []
     if russian_equivalent and not in_dict:
         equiv_first = russian_equivalent.split(",")[0].strip().split()[0]
         equivalent_in_dicts = get_equivalent_dict_sources(equiv_first, dict_manager)
 
+    name_type = None
+    base_for_syn = (lemma or wl).lower()
+    if base_for_syn in RUSSIAN_FIRST_NAMES:
+        name_type = "имя"
+    elif base_for_syn in RUSSIAN_SURNAMES:
+        name_type = "фамилия"
+    elif base_for_syn.endswith("ы") and len(base_for_syn) > 3:
+        cand = base_for_syn[:-1] + "а"
+        if cand in RUSSIAN_FIRST_NAMES:
+            name_type = "имя"
+
     if in_dict:
         dict_list = [{"dict": d["dict"], "page": d["page"]} for d in in_dicts]
         if not dict_list and wl in KNOWN_IN_DICTS:
             dict_name = KNOWN_IN_DICTS_SOURCE.get(wl, "Официальные словари РФ")
             dict_list = [{"dict": dict_name, "page": None}]
-        return {
+        synonyms = DICT_WORD_SYNONYMS.get(wl) or DICT_WORD_SYNONYMS.get(lemma or "")
+        result = {
             "word": word,
             "in_dict": True,
             "status": "можно использовать",
@@ -112,8 +175,13 @@ def analyze_word(word: str, dict_manager=None, occurrences: Optional[List] = Non
             "russian_equivalent": None,
             "occurrences": occurrences or [],
         }
+        if synonyms:
+            result["synonyms"] = synonyms
+        if name_type:
+            result["name_type"] = name_type
+        return result
     else:
-        return {
+        result = {
             "word": word,
             "in_dict": False,
             "status": "нет в словаре",
@@ -122,6 +190,11 @@ def analyze_word(word: str, dict_manager=None, occurrences: Optional[List] = Non
             "equivalent_in_dicts": equivalent_in_dicts,
             "occurrences": occurrences or [],
         }
+        if name_type:
+            result["name_type"] = name_type
+            if not russian_equivalent:
+                result["russian_equivalent"] = name_type + ", оставить"
+        return result
 
 # CSS: свойства, значения, псевдоклассы — не контент сайта
 _CSS_ARTIFACTS = frozenset({

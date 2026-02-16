@@ -413,9 +413,9 @@ def get_html() -> str:
                 const dictList = row.in_official_dicts && row.in_official_dicts.length
                     ? [...new Set(row.in_official_dicts.map(d => d.dict))].join('; ')
                     : '—';
-                const recommendation = row.in_dict 
-                    ? 'можно использовать' 
-                    : (row.russian_equivalent ? 'замените на: ' + row.russian_equivalent : '—');
+                let recommendation = row.in_dict ? 'можно использовать' : (row.russian_equivalent ? 'замените на: ' + row.russian_equivalent : '—');
+                if (row.synonyms) recommendation += ' (синонимы: ' + row.synonyms + ')';
+                if (row.name_type) recommendation += ' [' + row.name_type + ']';
                 const inDictHtml = row.in_dict ? '<span class="ok">да</span>' : '<span class="anglicism">нет</span>';
                 let where = '—';
                 if (!row.in_dict && row.occurrences && row.occurrences.length) {
@@ -438,7 +438,9 @@ def get_html() -> str:
                 const dictList = r.in_official_dicts && r.in_official_dicts.length
                     ? [...new Set(r.in_official_dicts.map(d => d.dict))].join('; ')
                     : '—';
-                const rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
+                let rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
+                if (r.synonyms) rec += ' (синонимы: ' + r.synonyms + ')';
+                if (r.name_type) rec += ' [' + r.name_type + ']';
                 let where = '—';
                 if (!r.in_dict && r.occurrences && r.occurrences.length) {
                     const o = r.occurrences[0];

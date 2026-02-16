@@ -209,9 +209,9 @@ class DictionaryManager:
                 if base + "я" in index_lookup:
                     return base + "я"
 
-        # Составные с дефисом: арт-директорами → арт-директор (до verb_present)
+        # Составные с дефисом: арт-директорами → арт-директор, онлайн-школы → онлайн-школа, ии-ассистента → ии-ассистент
         if "-" in w:
-            for suf in ("ами", "ями", "ому", "ему", "ов", "ев", "ах", "ях", "а", "я", "у", "ю"):
+            for suf in ("ами", "ями", "ому", "ему", "ов", "ев", "ах", "ях", "ам", "ям", "а", "я", "у", "ю", "ы", "и"):
                 if len(w) > len(suf) + 2 and w.endswith(suf):
                     candidate = w[:-len(suf)]
                     if candidate and word_ok.match(candidate):
@@ -220,6 +220,12 @@ class DictionaryManager:
                         c_yo = candidate.replace("е", "ё")
                         if c_yo in index_lookup:
                             return c_yo
+                        # Сущ. ж.р. -ы/-и: онлайн-школы → онлайн-школа
+                        if suf in ("ы", "и") and len(candidate) > 2:
+                            for tail in ("а", "я"):
+                                try_form = candidate + tail
+                                if try_form in index_lookup:
+                                    return try_form
 
         verb_past_suffixes = ("л", "ла", "ло", "ли")
         for suf in verb_past_suffixes:
