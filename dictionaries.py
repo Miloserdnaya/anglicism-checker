@@ -303,17 +303,14 @@ class DictionaryManager:
                     candidates += [stem[:-1] + "з" + "ать" + reflexive_tail, stem[:-1] + "з" + "ить" + reflexive_tail]
                     alt_stem = stem[:-1] + "г"
                     candidates += [alt_stem + "чь" + reflexive_tail]
-                # Повелит. -йте/-й + ся: зарегистрируйтесь → зарегистрироваться (й → ать/ять)
-                if suf in ("йте", "й") and stem.endswith("й") and reflexive_tail and len(stem) > 2:
+                # Повелит. -йте/-й: -овать/-евать (используйте → использовать)
+                if suf in ("йте", "й") and stem.endswith("й") and len(stem) > 2:
+                    base = stem[:-1]
                     candidates += [
-                        stem[:-1] + "ать" + reflexive_tail,
-                        stem[:-1] + "ять" + reflexive_tail,
-                    ]
-                # Повелит. -й без ся: игнорируй → игнорировать
-                if suf == "й" and stem.endswith("й") and len(stem) > 2:
-                    candidates += [
-                        stem[:-1] + "ать" + reflexive_tail,
-                        stem[:-1] + "ять" + reflexive_tail,
+                        base + "ать" + reflexive_tail,
+                        base + "ять" + reflexive_tail,
+                        base + "овать" + reflexive_tail,
+                        base + "евать" + reflexive_tail,
                     ]
                 picked = _pick_form(candidates)
                 if picked:
