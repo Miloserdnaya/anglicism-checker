@@ -356,13 +356,18 @@ class DictionaryManager:
                 if picked:
                     return picked
 
-        # Сущ. твор. мн. -ами/-ями: маркетологами → маркетолог (ранняя проверка)
+        # Сущ. твор. мн. -ами/-ями: маркетологами → маркетолог, формулировками → формулировка
         for instr_pl in ("ами", "ями"):
             if len(w) > len(instr_pl) + 3 and w.endswith(instr_pl):
                 stem_instr = w[:-len(instr_pl)]
-                if stem_instr and stem_instr[-1] not in "аеёиоуыэюя" and word_ok.match(stem_instr):
-                    if stem_instr in index_lookup:
+                if stem_instr and word_ok.match(stem_instr):
+                    if stem_instr[-1] not in "аеёиоуыэюя" and stem_instr in index_lookup:
                         return stem_instr
+                    # Сущ. на -ка: формулировк+ами → формулировка
+                    if stem_instr.endswith("к") and len(stem_instr) > 2:
+                        picked = _pick_form([stem_instr + "а"])
+                        if picked:
+                            return picked
 
         # Существительные на -ие/-ние: род.п. структурирования → структурирование
         if len(w) > 5 and w.endswith("ия"):
