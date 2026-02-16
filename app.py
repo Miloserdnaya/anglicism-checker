@@ -45,9 +45,12 @@ async def index():
 @app.get("/api/status")
 async def status():
     """Статус сервиса и словарей."""
+    pdf_count = len(list(dict_manager.pdf_dir.glob("*.pdf"))) if dict_manager.pdf_dir.exists() else 0
     return {
         "pdfs_downloaded": dict_manager.has_pdfs,
+        "pdf_count": pdf_count,
         "index_ready": dict_manager.is_ready,
+        "index_exists": dict_manager.index_file.exists(),
         "dictionaries": list(DICTIONARY_SOURCES.keys()),
     }
 
@@ -56,8 +59,15 @@ async def status():
 async def init_dictionaries():
     """Скачивает PDF-словари и строит индекс."""
     download_result = dict_manager.download_dictionaries()
-    if "error" in download_result:
-        raise HTTPException(status_code=500, detail=download_result)
+    if isinstance(download_result, dict) and "error" in download_result:
+        raise HTTPException(status_code=500, detail=download_result["error"])
+    pdf_count = len(list(dict_manager.pdf_dir.glob("*.pdf"))) if dict_manager.pdf_dir.exists() else 0
+    if pdf_count == 0:
+        failed = [f"{k}: {v}" for k, v in (download_result or {}).items() if v not in ("downloaded", "already_exists")]
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось загрузить словари. Проверьте подключение к интернету. Ошибки: " + ("; ".join(failed) if failed else "нет PDF в data/pdf/"),
+        )
     index_result = dict_manager.index_pdfs()
     if isinstance(index_result, dict) and "error" in index_result:
         raise HTTPException(status_code=500, detail=index_result["error"])
@@ -167,7 +177,7 @@ def get_html() -> str:
 
     <div class="card" id="init-card">
         <h3>Словари</h3>
-        <p>Официальные PDF-словари (ИРЯ РАН, ИЛИ РАН, СПбГУ) скачиваются с ruslang.ru и индексируются локально. <strong>Загрузка занимает 5–10 минут</strong> (~100 МБ).</p>
+        <p>Официальные PDF-словари скачиваются с ruslang.ru (~100 МБ, 5–10 мин). <strong>На Railway добавьте Volume</strong> (Settings → Volumes → mount /app/data), иначе данные пропадут при перезапуске.</p>
         <button id="btnInit" onclick="initDictionaries()">Загрузить и проиндексировать словари</button>
         <p id="init-status" style="margin-top: 0.5rem; font-size: 0.9rem;"></p>
     </div>
@@ -194,9 +204,10 @@ def get_html() -> str:
                 const r = await fetch('/api/status');
                 clearTimeout(slowMsg);
                 const s = await r.json();
+                const pdfInfo = s.pdf_count !== undefined ? ' (PDF: ' + s.pdf_count + ' из 5)' : '';
                 status.textContent = s.index_ready 
                     ? 'Словари загружены и проиндексированы.' 
-                    : (s.pdfs_downloaded ? 'PDF скачаны. Нажмите «Загрузить и проиндексировать» (5–10 мин).' : 'Словари не загружены. Нажмите кнопку ниже (загрузка ~5–10 мин).');
+                    : (s.pdfs_downloaded || (s.pdf_count && s.pdf_count > 0) ? 'PDF: ' + (s.pdf_count || 0) + ' из 5. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже (скачивание ~100 МБ, 5–10 мин).');
             } catch (e) {
                 clearTimeout(slowMsg);
                 status.textContent = 'Ошибка соединения. Проверьте интернет или подождите — сервер может запускаться.';
@@ -218,8 +229,12 @@ def get_html() -> str:
             st.textContent = 'Скачивание PDF (~100 МБ) и индексация. Это займёт 5–10 минут, не закрывайте страницу…';
             st.style.color = '';
             try {
-                const r = await fetch('/api/init', { method: 'POST' });
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 600000);
+                const r = await fetch('/api/init', { method: 'POST', signal: ctrl.signal });
+                clearTimeout(t);
                 const d = await r.json();
+                if (!r.ok) throw new Error(d.detail || d.message || 'Ошибка загрузки');
                 if (d.download && d.index) {
                     const n = d.index.words || d.index.pages || '-';
                     st.textContent = 'Готово. Скачано ' + Object.keys(d.download || {}).length + ' файлов. Проиндексировано: ' + n + ' слов.';
@@ -229,7 +244,9 @@ def get_html() -> str:
                 }
                 getStatus();
             } catch (e) {
-                st.textContent = 'Ошибка: ' + e.message;
+                st.textContent = e.name === 'AbortError' 
+                    ? 'Превышено время ожидания (10 мин). Попробуйте ещё раз.' 
+                    : 'Ошибка: ' + (e.message || e);
                 st.style.color = '#c92a2a';
             } finally {
                 btn.disabled = false;
