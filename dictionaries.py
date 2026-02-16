@@ -359,6 +359,13 @@ class DictionaryManager:
                     ])
                     if adj_picked:
                         return adj_picked
+                # Повелит. на -и: выдели → выделить (и там, где verb_present не сработал)
+                if suf == "и" and candidate and candidate[-1] not in "аеёиоуыэюя":
+                    verb_lemma = _pick_form([
+                        candidate + "ить", candidate + "еть", candidate + "ать", candidate + "ять",
+                    ])
+                    if verb_lemma:
+                        return verb_lemma
                 picked = _pick_form(
                     [
                         candidate,
