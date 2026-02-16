@@ -151,6 +151,7 @@ def get_html() -> str:
 <body>
     <h1>Проверка англицизмов</h1>
     <p id="status">Загрузка…</p>
+    <p><button id="btnRefresh" class="secondary" onclick="getStatus()">Обновить статус</button></p>
 
     <div class="card">
         <h3>Слова</h3>
@@ -194,24 +195,27 @@ def get_html() -> str:
     <script>
         async function getStatus() {
             const status = document.getElementById('status');
+            const btnRefresh = document.getElementById('btnRefresh');
             status.textContent = 'Проверка статуса...';
             status.style.color = '';
+            btnRefresh.style.display = 'none';
             const slowMsg = setTimeout(() => {
-                status.textContent = 'Сервер запускается (первый запуск может занять до минуты). Подождите…';
+                status.textContent = 'Сервер запускается или недоступен. Нажмите «Обновить статус», чтобы повторить.';
                 status.style.color = '#666';
-            }, 4000);
+                btnRefresh.style.display = 'inline-block';
+            }, 5000);
             try {
                 const r = await fetch('/api/status');
                 clearTimeout(slowMsg);
                 const s = await r.json();
-                const pdfInfo = s.pdf_count !== undefined ? ' (PDF: ' + s.pdf_count + ' из 5)' : '';
                 status.textContent = s.index_ready 
                     ? 'Словари загружены и проиндексированы.' 
                     : (s.pdfs_downloaded || (s.pdf_count && s.pdf_count > 0) ? 'PDF: ' + (s.pdf_count || 0) + ' из 5. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже (скачивание ~100 МБ, 5–10 мин).');
             } catch (e) {
                 clearTimeout(slowMsg);
-                status.textContent = 'Ошибка соединения. Проверьте интернет или подождите — сервер может запускаться.';
+                status.textContent = 'Ошибка соединения. Нажмите «Обновить статус», чтобы повторить.';
                 status.style.color = '#c92a2a';
+                btnRefresh.style.display = 'inline-block';
             }
         }
 
