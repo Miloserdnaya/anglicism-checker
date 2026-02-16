@@ -312,6 +312,9 @@ class DictionaryManager:
                         base + "овать" + reflexive_tail,
                         base + "евать" + reflexive_tail,
                     ]
+                # Повелит. -ите: назовите → назвать (ово → ва)
+                if suf == "ите" and stem.endswith("ови") and len(stem) > 4:
+                    candidates += [stem[:-2] + "вать" + reflexive_tail]
                 picked = _pick_form(candidates)
                 if picked:
                     return picked
