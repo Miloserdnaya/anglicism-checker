@@ -342,6 +342,20 @@ class DictionaryManager:
                 if picked:
                     return picked
 
+        # Причастия твор. мн. -енными/-анными: очищенными → очищенный
+        if len(w) > 6 and w.endswith("енными"):
+            stem_p = w[:-6]  # очищ
+            if stem_p and word_ok.match(stem_p):
+                picked = _pick_form([stem_p + "енный"])
+                if picked:
+                    return picked
+        if len(w) > 6 and w.endswith("анными"):
+            stem_p = w[:-6]
+            if stem_p and word_ok.match(stem_p):
+                picked = _pick_form([stem_p + "анный"])
+                if picked:
+                    return picked
+
         # Сущ. твор. мн. -ами/-ями: маркетологами → маркетолог (ранняя проверка)
         for instr_pl in ("ами", "ями"):
             if len(w) > len(instr_pl) + 3 and w.endswith(instr_pl):
