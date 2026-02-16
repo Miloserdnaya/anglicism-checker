@@ -13,6 +13,9 @@ KNOWN_IN_DICTS_SOURCE = {
 # Слова, которые не проверяем (частицы, суффиксы, артефакты)
 SKIP_WORDS = frozenset({"ась"})
 
+# Слова, которые попадают в индекс из этимологий/примеров, но НЕ имеют своей словарной статьи
+FALSE_POSITIVES_IN_DICT = frozenset({"soft", "ball", "skills"})
+
 # Имена (проверяем по базовой форме)
 RUSSIAN_FIRST_NAMES = frozenset({
     "ангелина", "мария", "анна", "елена", "ольга", "наталья", "ирина", "татьяна",
@@ -26,7 +29,6 @@ RUSSIAN_SURNAMES = frozenset({
 
 # Синонимы для слов, которые УЖЕ в словаре (альтернативы на выбор)
 DICT_WORD_SYNONYMS = {
-    "soft": "мягкий",
     "skills": "навыки, умения",
     "ментор": "наставник, советник",
     "маркетолог": "специалист по продвижению",
@@ -142,7 +144,10 @@ def analyze_word(word: str, dict_manager=None, occurrences: Optional[List] = Non
             lemma = _get_lemma_for_lookup(word, dict_manager)
 
     # Учитываем и индекс, и явный список слов, зафиксированных в словарях
-    in_dict = len(in_dicts) > 0 or wl in KNOWN_IN_DICTS
+    # Исключаем ложные срабатывания (слово в этимологии, но не отдельная статья)
+    if wl in FALSE_POSITIVES_IN_DICT:
+        in_dicts = []
+    in_dict = (len(in_dicts) > 0 or wl in KNOWN_IN_DICTS) and wl not in FALSE_POSITIVES_IN_DICT
     russian_equivalent = RUSSIAN_EQUIVALENTS.get(wl) or (lemma and RUSSIAN_EQUIVALENTS.get(lemma))
 
     equivalent_in_dicts = []
