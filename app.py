@@ -418,7 +418,7 @@ def get_html() -> str:
                     : (row.russian_equivalent ? 'замените на: ' + row.russian_equivalent : '—');
                 const inDictHtml = row.in_dict ? '<span class="ok">да</span>' : '<span class="anglicism">нет</span>';
                 let where = '—';
-                if (row.occurrences && row.occurrences.length) {
+                if (!row.in_dict && row.occurrences && row.occurrences.length) {
                     const first = row.occurrences[0];
                     where = (first.page ? 'Стр. ' + first.page + ': ' : '') + (first.context || '');
                     if (row.occurrences.length > 1) where += ' (+' + (row.occurrences.length - 1) + ')';
@@ -440,7 +440,7 @@ def get_html() -> str:
                     : '—';
                 const rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
                 let where = '—';
-                if (r.occurrences && r.occurrences.length) {
+                if (!r.in_dict && r.occurrences && r.occurrences.length) {
                     const o = r.occurrences[0];
                     where = (o.page ? 'Стр. ' + o.page + ': ' : '') + (o.context || '');
                     if (r.occurrences.length > 1) where += ' (+' + (r.occurrences.length - 1) + ' вхождений)';
