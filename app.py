@@ -230,6 +230,7 @@ def get_html() -> str:
         <p style="margin-bottom: 0.5rem;">
             <button class="secondary" onclick="downloadCSV()">Скачать CSV</button>
             <button class="secondary" onclick="downloadTZ()">Скачать ТЗ</button>
+            <span id="tz-message" style="margin-left: 0.5rem; font-size: 0.9rem;"></span>
         </p>
         <table id="results"></table>
     </div>
@@ -402,6 +403,8 @@ def get_html() -> str:
 
         function showResults(data) {
             lastResults = data;
+            const tzMsg = document.getElementById('tz-message');
+            if (tzMsg) tzMsg.textContent = '';
             const card = document.getElementById('results-card');
             const table = document.getElementById('results');
             let html = '<tr><th>Слово</th><th>В словаре</th><th>В каком словаре</th><th>Рекомендация</th><th>Где находится</th></tr>';
@@ -453,11 +456,25 @@ def get_html() -> str:
             URL.revokeObjectURL(a.href);
         }
 
+        function showTZMessage(msg, isError) {
+            const el = document.getElementById('tz-message');
+            if (!el) return;
+            el.textContent = msg;
+            el.style.color = isError ? '#c92a2a' : '#495057';
+            setTimeout(function() { el.textContent = ''; }, 8000);
+        }
+
         function downloadTZ() {
-            if (!lastResults.length) return;
-            const toReplace = lastResults.filter(r => !r.in_dict && r.russian_equivalent);
-            if (!toReplace.length) {
-                alert('Нет слов для замены: все слова либо в словаре, либо без рекомендуемого аналога.');
+            if (!lastResults.length) {
+                showTZMessage('Сначала выполните проверку слов, URL или PDF.', true);
+                return;
+            }
+            const withEquiv = lastResults.filter(r => !r.in_dict && r.russian_equivalent);
+            const noEquiv = lastResults.filter(r => !r.in_dict && !r.russian_equivalent);
+            const noEquivMapped = noEquiv.map(r => ({ ...r, russian_equivalent: '(подобрать аналог вручную)', equivalent_in_dicts: [] }));
+            const toReplace = withEquiv.concat(noEquivMapped);
+            if (toReplace.length === 0) {
+                showTZMessage('Все слова уже в словарях — ТЗ не требуется. Скачайте CSV для отчёта.', false);
                 return;
             }
             const date = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
