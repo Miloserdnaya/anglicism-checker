@@ -286,6 +286,8 @@ class DictionaryManager:
                 endings_to_try = ["ть", "ти", "ить", "ать", "ять", "еть"]
                 if stem.endswith(("ч", "щ")):
                     endings_to_try.append("ь")
+                if stem.endswith(("г", "ж")):
+                    endings_to_try.append("чь")
                 candidates = [
                     stem + end + reflexive_tail for end in endings_to_try if stem
                 ]
@@ -294,6 +296,13 @@ class DictionaryManager:
                     candidates += [
                         trimmed + end + reflexive_tail for end in endings_to_try
                     ]
+                if stem.endswith("ш"):
+                    alt_stem = stem[:-1] + "с"
+                    candidates += [alt_stem + "ать" + reflexive_tail, alt_stem + "ить" + reflexive_tail]
+                if stem.endswith("ж"):
+                    candidates += [stem[:-1] + "з" + "ать" + reflexive_tail, stem[:-1] + "з" + "ить" + reflexive_tail]
+                    alt_stem = stem[:-1] + "г"
+                    candidates += [alt_stem + "чь" + reflexive_tail]
                 picked = _pick_form(candidates)
                 if picked:
                     return picked
