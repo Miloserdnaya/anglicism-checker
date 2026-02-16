@@ -167,6 +167,7 @@ def get_html() -> str:
         <h3>Результаты</h3>
         <p style="margin-bottom: 0.5rem;">
             <button class="secondary" onclick="downloadCSV()">Скачать CSV</button>
+            <button class="secondary" onclick="downloadTZ()">Скачать ТЗ</button>
         </p>
         <table id="results"></table>
     </div>
@@ -204,6 +205,7 @@ def get_html() -> str:
                 body: JSON.stringify({ words })
             });
             const data = await r.json();
+            lastSource = 'список слов';
             showResults(data);
         }
 
@@ -216,6 +218,7 @@ def get_html() -> str:
                 body: JSON.stringify({ url })
             });
             const data = await r.json();
+            lastSource = url;
             showResults(data);
         }
 
@@ -227,10 +230,12 @@ def get_html() -> str:
             const r = await fetch('/api/check-pdf', { method: 'POST', body: form });
             if (!r.ok) { const e = await r.json(); alert(e.detail || 'Ошибка'); return; }
             const data = await r.json();
+            lastSource = input.files[0].name;
             showResults(data);
         }
 
         let lastResults = [];
+        let lastSource = '';
 
         function showResults(data) {
             lastResults = data;
@@ -269,6 +274,65 @@ def get_html() -> str:
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = 'anglicism-check-results.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        function downloadTZ() {
+            if (!lastResults.length) return;
+            const toReplace = lastResults.filter(r => !r.in_dict && r.russian_equivalent);
+            if (!toReplace.length) {
+                alert('Нет слов для замены: все слова либо в словаре, либо без рекомендуемого аналога.');
+                return;
+            }
+            const date = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+            let tz = `ТЕХНИЧЕСКОЕ ЗАДАНИЕ
+на замену англицизмов на слова-аналоги из официальных словарей РФ
+
+Дата: ${date}
+Источник проверки: ${lastSource || '—'}
+
+═══════════════════════════════════════════════════════════════════
+1. ЗАДАЧА
+
+Выполнить замену слов (англицизмов), отсутствующих в официальных словарях 
+русского языка как государственного языка РФ, на рекомендуемые аналоги.
+
+Словарь источников:
+• Орфографический словарь (ИРЯ РАН)
+• Орфоэпический словарь (ИРЯ РАН)
+• Словарь иностранных слов (ИЛИ РАН)
+• Толковый словарь гос. языка РФ (СПбГУ)
+
+═══════════════════════════════════════════════════════════════════
+2. СПИСОК ЗАМЕН
+
+`;
+            toReplace.forEach((r, i) => {
+                tz += `${i + 1}. «${r.word}» → заменить на: ${r.russian_equivalent}\n`;
+            });
+            tz += `
+═══════════════════════════════════════════════════════════════════
+3. ИНСТРУКЦИЯ ДЛЯ ИСПОЛНИТЕЛЯ
+
+• Найти в тексте все вхождения каждого слова из списка (учтите словоформы:
+  падежи, числа, глагольные формы — креатив, креативный, креативность и т.п.).
+• Заменить на рекомендуемый аналог с учётом контекста и стиля.
+• При необходимости скорректировать грамматику предложения после замены.
+• Слова, не попавшие в список, оставить без изменений (они уже в словаре).
+
+═══════════════════════════════════════════════════════════════════
+4. КОНТРОЛЬ
+
+По завершении работ проверить, что:
+— все указанные слова заменены;
+— текст читается естественно;
+— термины, имена собственные и устоявшиеся обозначения сохранены по смыслу.
+`;
+            const blob = new Blob([tz], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'ТЗ-замена-англицизмов.txt';
             a.click();
             URL.revokeObjectURL(a.href);
         }

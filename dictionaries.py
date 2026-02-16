@@ -327,6 +327,16 @@ class DictionaryManager:
                 if picked:
                     return picked
 
+        # Существительные на -ие/-ние: род.п. структурирования → структурирование
+        if len(w) > 5 and w.endswith("ия"):
+            stem_ie = w[:-2]  # структурировани
+            if stem_ie and len(stem_ie) >= 4 and word_ok.match(stem_ie):
+                if stem_ie.endswith(("и", "н")):  # типично для -ие/-ние
+                    lemma_ie = stem_ie + "е"  # структурирование
+                    picked = _pick_form([lemma_ie])
+                    if picked:
+                        return picked
+
         adjective_suffixes = {"ого", "ему", "его", "ом", "ем", "ой", "ою", "ею", "ую", "ые", "ых", "ыми", "ими"}
         multi_suffixes = ("ового", "его", "ому", "ему", "ого", "ами", "ями", "ах", "ях", "ов", "ев",
                           "ам", "ям", "ом", "ем", "ой", "ей", "ую", "ые", "ых", "ыми", "ими", "ою", "ею")
@@ -342,14 +352,19 @@ class DictionaryManager:
                     base = candidate[:-2]
                     if base and word_ok.match(base):
                         return base
-                # Прилаг. на -ный: креативного → креативн → креативный
+                # Прилаг. на -ный/-ной/-ний: востребованн→востребованный, ручн→ручной
                 if suf in adjective_suffixes and candidate.endswith("н") and len(candidate) > 2:
-                    return candidate + "ый"  # востребованн → востребованный
+                    adj_picked = _pick_form([
+                        candidate + "ый", candidate + "ой", candidate + "ий", candidate + "ный",
+                    ])
+                    if adj_picked:
+                        return adj_picked
                 picked = _pick_form(
                     [
                         candidate,
                         candidate + "й",
                         candidate + "я",
+                        candidate + "а",  # формулировками → формулировка
                         candidate + "ый",
                         candidate + "ий",
                         candidate + "ой",
