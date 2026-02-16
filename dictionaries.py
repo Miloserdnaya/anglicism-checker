@@ -303,6 +303,9 @@ class DictionaryManager:
                     candidates += [stem[:-1] + "з" + "ать" + reflexive_tail, stem[:-1] + "з" + "ить" + reflexive_tail]
                     alt_stem = stem[:-1] + "г"
                     candidates += [alt_stem + "чь" + reflexive_tail]
+                # Будущее 3л.: откроется → открыться (откро → открыть)
+                if stem.endswith("о") and suf in ("ет", "ют", "ут", "ат", "ят") and len(stem) > 2:
+                    candidates += [stem[:-1] + "ыть" + reflexive_tail]
                 # Повелит. -йте/-й: -овать/-евать (используйте → использовать)
                 if suf in ("йте", "й") and stem.endswith("й") and len(stem) > 2:
                     base = stem[:-1]
