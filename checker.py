@@ -177,3 +177,32 @@ def extract_words_from_html(html: str) -> list[str]:
         if not _is_technical_artifact(w):
             words.add(w)
     return sorted(words)
+
+
+def extract_words_from_text(text: str) -> list[str]:
+    """Извлекает слова из обычного текста (PDF, DOCX и т.п.) для проверки."""
+    text = text.replace("\u0301", "")
+    words = set()
+    for m in re.finditer(r"\b[а-яё][а-яё\-]{2,}\b", text, re.I):
+        words.add(m.group(0).lower())
+    for m in re.finditer(r"\b[a-z][a-z\-]{2,}\b", text):
+        words.add(m.group(0).lower())
+    return sorted(words)
+
+
+def extract_words_from_pdf(pdf_bytes: bytes) -> list[str]:
+    """Извлекает текст из PDF и возвращает слова для проверки."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise ValueError("PyMuPDF не установлен. Выполните: pip install PyMuPDF")
+    text_parts = []
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text_parts.append(page.get_text())
+    finally:
+        doc.close()
+    full_text = "\n".join(text_parts)
+    return extract_words_from_text(full_text)

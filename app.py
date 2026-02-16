@@ -6,11 +6,11 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from checker import analyze_word, extract_words_from_html
+from checker import analyze_word, extract_words_from_html, extract_words_from_pdf
 from dictionaries import DictionaryManager, DICTIONARY_SOURCES
 
 DATA_DIR = Path(os.environ["DATA_DIR"]) if os.environ.get("DATA_DIR") else Path(__file__).resolve().parent / "data"
@@ -88,6 +88,25 @@ async def check_url(req: CheckUrlRequest):
     return results
 
 
+@app.post("/api/check-pdf", response_model=list)
+async def check_pdf(file: UploadFile = File(...)):
+    """Загрузите PDF-файл — извлекаем текст и проверяем слова на англицизмы."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Загрузите файл в формате PDF")
+    try:
+        pdf_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Не удалось прочитать файл: {e}")
+    if len(pdf_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Файл не должен превышать 50 МБ")
+    try:
+        words = extract_words_from_pdf(pdf_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    results = [analyze_word(w, dict_manager) for w in words]
+    return results
+
+
 def get_html() -> str:
     return """<!DOCTYPE html>
 <html lang="ru">
@@ -129,6 +148,12 @@ def get_html() -> str:
         <h3>Проверить сайт</h3>
         <input type="url" id="url" placeholder="https://example.ru" style="width: 100%; margin-bottom: 0.5rem;" value="https://thecreativity.ru/">
         <button onclick="checkUrl()">Найти англицизмы на странице</button>
+    </div>
+
+    <div class="card">
+        <h3>Проверить PDF</h3>
+        <input type="file" id="pdfFile" accept=".pdf" style="margin-bottom: 0.5rem;">
+        <p><button onclick="checkPdf()">Найти англицизмы в PDF</button></p>
     </div>
 
     <div class="card" id="init-card">
@@ -190,6 +215,17 @@ def get_html() -> str:
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url })
             });
+            const data = await r.json();
+            showResults(data);
+        }
+
+        async function checkPdf() {
+            const input = document.getElementById('pdfFile');
+            if (!input.files || !input.files[0]) { alert('Выберите PDF-файл'); return; }
+            const form = new FormData();
+            form.append('file', input.files[0]);
+            const r = await fetch('/api/check-pdf', { method: 'POST', body: form });
+            if (!r.ok) { const e = await r.json(); alert(e.detail || 'Ошибка'); return; }
             const data = await r.json();
             showResults(data);
         }
