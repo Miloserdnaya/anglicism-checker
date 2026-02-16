@@ -4,6 +4,7 @@
 """
 
 import os
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -16,10 +17,20 @@ from dictionaries import DictionaryManager, DICTIONARY_SOURCES
 DATA_DIR = Path(os.environ["DATA_DIR"]) if os.environ.get("DATA_DIR") else Path(__file__).resolve().parent / "data"
 dict_manager = DictionaryManager(DATA_DIR)
 
+# Фоновая загрузка словарей (избегаем таймаута Railway ~5 мин)
+_init_state = {"status": "idle", "message": "", "error": None}
+_init_lock = threading.Lock()
+
 app = FastAPI(
     title="Проверка англицизмов",
     description="Проверка слов по официальным словарям РФ (ИРЯ РАН, ИЛИ РАН, СПбГУ)",
 )
+
+
+@app.get("/health")
+async def health():
+    """Лёгкий эндпоинт для health-check Railway."""
+    return {"status": "ok"}
 
 
 @app.on_event("startup")
@@ -42,36 +53,67 @@ async def index():
     return HTMLResponse(get_html())
 
 
+def _run_init():
+    """Фоновая загрузка и индексация словарей."""
+    global _init_state
+    with _init_lock:
+        if _init_state["status"] == "running":
+            return
+        _init_state["status"] = "running"
+        _init_state["error"] = None
+        _init_state["message"] = "Скачивание PDF..."
+    try:
+        download_result = dict_manager.download_dictionaries()
+        with _init_lock:
+            _init_state["message"] = "Индексация..."
+        if isinstance(download_result, dict) and "error" in download_result:
+            raise Exception(download_result["error"])
+        pdf_count = len(list(dict_manager.pdf_dir.glob("*.pdf"))) if dict_manager.pdf_dir.exists() else 0
+        if pdf_count == 0:
+            failed = [f"{k}: {v}" for k, v in (download_result or {}).items() if v not in ("downloaded", "already_exists")]
+            raise Exception("Не удалось загрузить. Ошибки: " + ("; ".join(failed) if failed else "нет PDF"))
+        index_result = dict_manager.index_pdfs()
+        if isinstance(index_result, dict) and "error" in index_result:
+            raise Exception(index_result["error"])
+        with _init_lock:
+            _init_state["status"] = "done"
+            _init_state["message"] = f"Готово. {index_result.get('words', 0)} слов."
+    except Exception as e:
+        with _init_lock:
+            _init_state["status"] = "error"
+            _init_state["error"] = str(e)
+            _init_state["message"] = str(e)
+
+
 @app.get("/api/status")
 async def status():
     """Статус сервиса и словарей."""
     pdf_count = len(list(dict_manager.pdf_dir.glob("*.pdf"))) if dict_manager.pdf_dir.exists() else 0
+    with _init_lock:
+        init_state = dict(_init_state)
     return {
         "pdfs_downloaded": dict_manager.has_pdfs,
         "pdf_count": pdf_count,
         "index_ready": dict_manager.is_ready,
         "index_exists": dict_manager.index_file.exists(),
         "dictionaries": list(DICTIONARY_SOURCES.keys()),
+        "init_status": init_state["status"],
+        "init_message": init_state["message"],
+        "init_error": init_state.get("error"),
     }
 
 
 @app.post("/api/init")
 async def init_dictionaries():
-    """Скачивает PDF-словари и строит индекс."""
-    download_result = dict_manager.download_dictionaries()
-    if isinstance(download_result, dict) and "error" in download_result:
-        raise HTTPException(status_code=500, detail=download_result["error"])
-    pdf_count = len(list(dict_manager.pdf_dir.glob("*.pdf"))) if dict_manager.pdf_dir.exists() else 0
-    if pdf_count == 0:
-        failed = [f"{k}: {v}" for k, v in (download_result or {}).items() if v not in ("downloaded", "already_exists")]
-        raise HTTPException(
-            status_code=500,
-            detail="Не удалось загрузить словари. Проверьте подключение к интернету. Ошибки: " + ("; ".join(failed) if failed else "нет PDF в data/pdf/"),
-        )
-    index_result = dict_manager.index_pdfs()
-    if isinstance(index_result, dict) and "error" in index_result:
-        raise HTTPException(status_code=500, detail=index_result["error"])
-    return {"download": download_result, "index": index_result}
+    """Запускает загрузку и индексацию в фоне. Возвращает сразу. Опрашивайте /api/status."""
+    with _init_lock:
+        if _init_state["status"] == "running":
+            return {"status": "running", "message": "Загрузка уже идёт. Обновите страницу для статуса."}
+        if dict_manager.is_ready:
+            return {"status": "done", "message": "Словари уже загружены."}
+    t = threading.Thread(target=_run_init, daemon=True)
+    t.start()
+    return {"status": "started", "message": "Загрузка запущена. Обновите статус через 10–20 сек."}
 
 
 @app.post("/api/check", response_model=list)
@@ -180,7 +222,7 @@ def get_html() -> str:
         <h3>Словари</h3>
         <p>Официальные PDF-словари скачиваются с ruslang.ru (~100 МБ, 5–10 мин). <strong>На Railway добавьте Volume</strong> (Settings → Volumes → mount /app/data), иначе данные пропадут при перезапуске.</p>
         <button id="btnInit" onclick="initDictionaries()">Загрузить и проиндексировать словари</button>
-        <p id="init-status" style="margin-top: 0.5rem; font-size: 0.9rem;"></p>
+        <p id="init-status" style="margin-top: 0.5rem; font-size: 0.9rem; min-height: 1.4em; color: #495057;"></p>
     </div>
 
     <div class="card" id="results-card" style="display:none">
@@ -193,24 +235,48 @@ def get_html() -> str:
     </div>
 
     <script>
-        async function getStatus() {
+        let pollInterval = null;
+        async function getStatus(showRefreshAfterSlow = true) {
             const status = document.getElementById('status');
             const btnRefresh = document.getElementById('btnRefresh');
-            status.textContent = 'Проверка статуса...';
             status.style.color = '';
-            btnRefresh.style.display = 'none';
-            const slowMsg = setTimeout(() => {
-                status.textContent = 'Сервер запускается или недоступен. Нажмите «Обновить статус», чтобы повторить.';
+            if (showRefreshAfterSlow) {
+                status.textContent = 'Проверка статуса...';
+                btnRefresh.style.display = 'none';
+            }
+            const slowMsg = showRefreshAfterSlow ? setTimeout(() => {
+                status.textContent = 'Сервер запускается или недоступен. Нажмите «Обновить статус».';
                 status.style.color = '#666';
                 btnRefresh.style.display = 'inline-block';
-            }, 5000);
+            }, 5000) : null;
             try {
                 const r = await fetch('/api/status');
                 clearTimeout(slowMsg);
                 const s = await r.json();
-                status.textContent = s.index_ready 
-                    ? 'Словари загружены и проиндексированы.' 
-                    : (s.pdfs_downloaded || (s.pdf_count && s.pdf_count > 0) ? 'PDF: ' + (s.pdf_count || 0) + ' из 5. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже (скачивание ~100 МБ, 5–10 мин).');
+                const initSt = document.getElementById('init-status');
+                if (s.init_status === 'running') {
+                    const msg = (s.init_message || 'Загрузка...') + ' (5–15 мин, не закрывайте вкладку)';
+                    status.textContent = msg;
+                    if (initSt) { initSt.textContent = msg; initSt.style.color = '#0d6efd'; }
+                } else if (s.init_status === 'done' || s.index_ready) {
+                    status.textContent = 'Словари загружены и проиндексированы.';
+                    if (initSt) { initSt.textContent = 'Готово. Словари загружены.'; initSt.style.color = '#2b8a3e'; }
+                } else if (s.init_status === 'error') {
+                    const errMsg = 'Ошибка: ' + (s.init_error || s.init_message || '');
+                    status.textContent = errMsg;
+                    status.style.color = '#c92a2a';
+                    if (initSt) { initSt.textContent = errMsg; initSt.style.color = '#c92a2a'; }
+                } else {
+                    status.textContent = s.pdfs_downloaded || (s.pdf_count && s.pdf_count > 0) 
+                        ? 'PDF: ' + (s.pdf_count || 0) + ' из 5. Нажмите «Загрузить и проиндексировать».' 
+                        : 'Словари не загружены. Нажмите кнопку ниже (скачивание ~100 МБ, 5–15 мин в фоне).';
+                    if (initSt && !s.index_ready) initSt.textContent = '';
+                }
+                if ((s.init_status === 'running' || s.init_status === 'started') && !pollInterval) {
+                    pollInterval = setInterval(() => getStatus(false), 6000);
+                } else if (s.init_status === 'done' || s.init_status === 'error' || s.index_ready) {
+                    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+                }
             } catch (e) {
                 clearTimeout(slowMsg);
                 status.textContent = 'Ошибка соединения. Нажмите «Обновить статус», чтобы повторить.';
@@ -230,27 +296,26 @@ def get_html() -> str:
             const st = document.getElementById('init-status');
             const btn = document.getElementById('btnInit');
             btn.disabled = true;
-            st.textContent = 'Скачивание PDF (~100 МБ) и индексация. Это займёт 5–10 минут, не закрывайте страницу…';
-            st.style.color = '';
+            st.textContent = 'Запускаю загрузку…';
+            st.style.color = '#0d6efd';
             try {
-                const ctrl = new AbortController();
-                const t = setTimeout(() => ctrl.abort(), 600000);
-                const r = await fetch('/api/init', { method: 'POST', signal: ctrl.signal });
-                clearTimeout(t);
-                const d = await r.json();
-                if (!r.ok) throw new Error(d.detail || d.message || 'Ошибка загрузки');
-                if (d.download && d.index) {
-                    const n = d.index.words || d.index.pages || '-';
-                    st.textContent = 'Готово. Скачано ' + Object.keys(d.download || {}).length + ' файлов. Проиндексировано: ' + n + ' слов.';
+                const r = await fetch('/api/init', { method: 'POST' });
+                let d;
+                try { d = await r.json(); } catch (_) { d = {}; }
+                if (!r.ok) throw new Error(d.detail || (typeof d.detail === 'string' ? d.detail : d.message) || 'Сервер вернул ' + r.status);
+                if (d.status === 'done') {
+                    st.textContent = d.message || 'Словари уже загружены.';
                     st.style.color = '#2b8a3e';
+                    getStatus(false);
                 } else {
-                    st.textContent = 'Готово. ' + JSON.stringify(d);
+                    st.textContent = d.message || 'Загрузка запущена. Статус обновляется…';
+                    st.style.color = '#0d6efd';
+                    if (!pollInterval) pollInterval = setInterval(() => getStatus(false), 5000);
+                    getStatus(false);
+                    setTimeout(() => getStatus(false), 2000);
                 }
-                getStatus();
             } catch (e) {
-                st.textContent = e.name === 'AbortError' 
-                    ? 'Превышено время ожидания (10 мин). Попробуйте ещё раз.' 
-                    : 'Ошибка: ' + (e.message || e);
+                st.textContent = 'Ошибка: ' + (e.message || e);
                 st.style.color = '#c92a2a';
             } finally {
                 btn.disabled = false;
@@ -367,12 +432,12 @@ def get_html() -> str:
             const header = 'Слово;В словаре;В каком словаре;Рекомендация;Где находится';
             const rows = lastResults.map(r => {
                 const inDict = r.in_dict ? 'да' : 'нет';
-                const dictList = r.in_official_dicts?.length
+                const dictList = r.in_official_dicts && r.in_official_dicts.length
                     ? [...new Set(r.in_official_dicts.map(d => d.dict))].join('; ')
                     : '—';
                 const rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
                 let where = '—';
-                if (r.occurrences?.length) {
+                if (r.occurrences && r.occurrences.length) {
                     const o = r.occurrences[0];
                     where = (o.page ? 'Стр. ' + o.page + ': ' : '') + (o.context || '');
                     if (r.occurrences.length > 1) where += ' (+' + (r.occurrences.length - 1) + ' вхождений)';

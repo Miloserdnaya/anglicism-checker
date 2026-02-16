@@ -38,7 +38,15 @@
 1. **Settings** → **Networking** → **Generate Domain**
 2. Скопируйте URL (например `anglicism-checker-production.up.railway.app`)
 
-### Шаг 4. Первый запуск
+### Шаг 4. Проверка при 502
+
+Если видите 502 Bad Gateway:
+1. **Deployments → View Logs** — проверьте ошибки при запуске
+2. Убедитесь, что добавлен Volume (`/app/data`)
+3. Перезапустите: Deployments → ⋮ → Redeploy
+4. Проверьте `/health` — должен вернуть `{"status":"ok"}`
+
+### Шаг 5. Первый запуск
 
 1. Откройте URL сервиса
 2. Нажмите **«Загрузить и проиндексировать словари»**
