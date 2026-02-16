@@ -167,8 +167,8 @@ def get_html() -> str:
 
     <div class="card" id="init-card">
         <h3>Словари</h3>
-        <p>Официальные PDF-словари (ИРЯ РАН, ИЛИ РАН, СПбГУ) скачиваются с ruslang.ru и индексируются локально.</p>
-        <button onclick="initDictionaries()">Загрузить и проиндексировать словари</button>
+        <p>Официальные PDF-словари (ИРЯ РАН, ИЛИ РАН, СПбГУ) скачиваются с ruslang.ru и индексируются локально. <strong>Загрузка занимает 5–10 минут</strong> (~100 МБ).</p>
+        <button id="btnInit" onclick="initDictionaries()">Загрузить и проиндексировать словари</button>
         <p id="init-status" style="margin-top: 0.5rem; font-size: 0.9rem;"></p>
     </div>
 
@@ -184,15 +184,22 @@ def get_html() -> str:
     <script>
         async function getStatus() {
             const status = document.getElementById('status');
-            status.textContent = 'Проверка соединения...';
+            status.textContent = 'Проверка статуса...';
+            status.style.color = '';
+            const slowMsg = setTimeout(() => {
+                status.textContent = 'Сервер запускается (первый запуск может занять до минуты). Подождите…';
+                status.style.color = '#666';
+            }, 4000);
             try {
                 const r = await fetch('/api/status');
+                clearTimeout(slowMsg);
                 const s = await r.json();
                 status.textContent = s.index_ready 
                     ? 'Словари загружены и проиндексированы.' 
-                    : (s.pdfs_downloaded ? 'PDF скачаны. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже.');
+                    : (s.pdfs_downloaded ? 'PDF скачаны. Нажмите «Загрузить и проиндексировать» (5–10 мин).' : 'Словари не загружены. Нажмите кнопку ниже (загрузка ~5–10 мин).');
             } catch (e) {
-                status.textContent = 'Ошибка соединения. Проверьте интернет или попробуйте позже.';
+                clearTimeout(slowMsg);
+                status.textContent = 'Ошибка соединения. Проверьте интернет или подождите — сервер может запускаться.';
                 status.style.color = '#c92a2a';
             }
         }
@@ -206,14 +213,26 @@ def get_html() -> str:
 
         async function initDictionaries() {
             const st = document.getElementById('init-status');
-            st.textContent = 'Скачивание и индексация...';
+            const btn = document.getElementById('btnInit');
+            btn.disabled = true;
+            st.textContent = 'Скачивание PDF (~100 МБ) и индексация. Это займёт 5–10 минут, не закрывайте страницу…';
+            st.style.color = '';
             try {
                 const r = await fetch('/api/init', { method: 'POST' });
                 const d = await r.json();
-                st.textContent = 'Готово. Скачано: ' + JSON.stringify(d.download) + '. Индекс: ' + JSON.stringify(d.index);
+                if (d.download && d.index) {
+                    const n = d.index.words || d.index.pages || '-';
+                    st.textContent = 'Готово. Скачано ' + Object.keys(d.download || {}).length + ' файлов. Проиндексировано: ' + n + ' слов.';
+                    st.style.color = '#2b8a3e';
+                } else {
+                    st.textContent = 'Готово. ' + JSON.stringify(d);
+                }
                 getStatus();
             } catch (e) {
                 st.textContent = 'Ошибка: ' + e.message;
+                st.style.color = '#c92a2a';
+            } finally {
+                btn.disabled = false;
             }
         }
 
