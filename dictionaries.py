@@ -403,12 +403,18 @@ class DictionaryManager:
                     ])
                     if verb_lemma:
                         return verb_lemma
+                # Сущ. -ие: структурировани+а/я → структурирование
+                if suf in ("а", "я") and candidate.endswith("и") and len(candidate) >= 4:
+                    picked = _pick_form([candidate + "е"])
+                    if picked:
+                        return picked
                 picked = _pick_form(
                     [
                         candidate,
                         candidate + "й",
                         candidate + "я",
                         candidate + "а",  # формулировками → формулировка
+                        candidate + "е",  # структурирования → структурирование
                         candidate + "ый",
                         candidate + "ий",
                         candidate + "ой",
