@@ -140,26 +140,29 @@ def get_html() -> str:
 </head>
 <body>
     <h1>Проверка англицизмов</h1>
-    <p id="status">Загрузка статуса...</p>
+    <p id="status">Загрузка…</p>
 
     <div class="card">
         <h3>Слова</h3>
         <textarea id="words" placeholder="Введите слова через запятую или с новой строки">креатив, скилл, лайв</textarea>
         <p style="margin-top: 0.5rem;">
-            <button onclick="checkWords()">Проверить слова</button>
+            <button id="btnWords" onclick="checkWords()">Проверить слова</button>
+            <span id="wordsStatus" style="margin-left: 0.5rem; font-size: 0.9rem; color: #666;"></span>
         </p>
     </div>
 
     <div class="card">
         <h3>Проверить сайт</h3>
         <input type="url" id="url" placeholder="https://example.ru" style="width: 100%; margin-bottom: 0.5rem;" value="https://thecreativity.ru/">
-        <button onclick="checkUrl()">Найти англицизмы на странице</button>
+        <button id="btnUrl" onclick="checkUrl()">Найти англицизмы на странице</button>
+        <span id="urlStatus" style="margin-left: 0.5rem; font-size: 0.9rem; color: #666;"></span>
     </div>
 
     <div class="card">
         <h3>Проверить PDF</h3>
         <input type="file" id="pdfFile" accept=".pdf" style="margin-bottom: 0.5rem;">
-        <p><button onclick="checkPdf()">Найти англицизмы в PDF</button></p>
+        <p><button id="btnPdf" onclick="checkPdf()">Найти англицизмы в PDF</button>
+        <span id="pdfStatus" style="margin-left: 0.5rem; font-size: 0.9rem; color: #666;"></span></p>
     </div>
 
     <div class="card" id="init-card">
@@ -180,12 +183,25 @@ def get_html() -> str:
 
     <script>
         async function getStatus() {
-            const r = await fetch('/api/status');
-            const s = await r.json();
             const status = document.getElementById('status');
-            status.textContent = s.index_ready 
-                ? 'Словари загружены и проиндексированы.' 
-                : (s.pdfs_downloaded ? 'PDF скачаны. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже.');
+            status.textContent = 'Проверка соединения...';
+            try {
+                const r = await fetch('/api/status');
+                const s = await r.json();
+                status.textContent = s.index_ready 
+                    ? 'Словари загружены и проиндексированы.' 
+                    : (s.pdfs_downloaded ? 'PDF скачаны. Нажмите «Загрузить и проиндексировать».' : 'Словари не загружены. Нажмите кнопку ниже.');
+            } catch (e) {
+                status.textContent = 'Ошибка соединения. Проверьте интернет или попробуйте позже.';
+                status.style.color = '#c92a2a';
+            }
+        }
+
+        function setLoading(btn, loading) {
+            if (!btn) return;
+            btn.disabled = loading;
+            btn.dataset.originalText = btn.dataset.originalText || btn.textContent;
+            btn.textContent = loading ? '… Проверяю …' : btn.dataset.originalText;
         }
 
         async function initDictionaries() {
@@ -204,40 +220,76 @@ def get_html() -> str:
         async function checkWords() {
             const text = document.getElementById('words').value;
             const words = text.split(/[,\\n]+/).map(w => w.trim()).filter(Boolean);
-            if (!words.length) return;
-            const r = await fetch('/api/check', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ words })
-            });
-            const data = await r.json();
-            lastSource = 'список слов';
-            showResults(data);
+            if (!words.length) { alert('Введите слова'); return; }
+            const btn = document.getElementById('btnWords');
+            const st = document.getElementById('wordsStatus');
+            setLoading(btn, true);
+            st.textContent = 'Проверяю ' + words.length + ' слов...';
+            try {
+                const r = await fetch('/api/check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ words })
+                });
+                const data = await r.json();
+                lastSource = 'список слов';
+                showResults(data);
+                st.textContent = 'Готово. Найдено ' + data.length + ' слов.';
+            } catch (e) {
+                st.textContent = 'Ошибка: ' + e.message;
+                st.style.color = '#c92a2a';
+            } finally {
+                setLoading(btn, false);
+            }
         }
 
         async function checkUrl() {
             const url = document.getElementById('url').value;
-            if (!url) return;
-            const r = await fetch('/api/check-url', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
-            });
-            const data = await r.json();
-            lastSource = url;
-            showResults(data);
+            if (!url) { alert('Введите URL'); return; }
+            const btn = document.getElementById('btnUrl');
+            const st = document.getElementById('urlStatus');
+            setLoading(btn, true);
+            st.textContent = 'Загружаю страницу и проверяю...';
+            try {
+                const r = await fetch('/api/check-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await r.json();
+                lastSource = url;
+                showResults(data);
+                st.textContent = 'Готово. Найдено ' + data.length + ' слов.';
+            } catch (e) {
+                st.textContent = 'Ошибка: ' + e.message;
+                st.style.color = '#c92a2a';
+            } finally {
+                setLoading(btn, false);
+            }
         }
 
         async function checkPdf() {
             const input = document.getElementById('pdfFile');
             if (!input.files || !input.files[0]) { alert('Выберите PDF-файл'); return; }
-            const form = new FormData();
-            form.append('file', input.files[0]);
-            const r = await fetch('/api/check-pdf', { method: 'POST', body: form });
-            if (!r.ok) { const e = await r.json(); alert(e.detail || 'Ошибка'); return; }
-            const data = await r.json();
-            lastSource = input.files[0].name;
-            showResults(data);
+            const btn = document.getElementById('btnPdf');
+            const st = document.getElementById('pdfStatus');
+            setLoading(btn, true);
+            st.textContent = 'Читаю PDF и проверяю...';
+            try {
+                const form = new FormData();
+                form.append('file', input.files[0]);
+                const r = await fetch('/api/check-pdf', { method: 'POST', body: form });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || 'Ошибка');
+                lastSource = input.files[0].name;
+                showResults(data);
+                st.textContent = 'Готово. Найдено ' + data.length + ' слов.';
+            } catch (e) {
+                st.textContent = 'Ошибка: ' + e.message;
+                st.style.color = '#c92a2a';
+            } finally {
+                setLoading(btn, false);
+            }
         }
 
         let lastResults = [];
