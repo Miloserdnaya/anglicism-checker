@@ -209,6 +209,18 @@ class DictionaryManager:
                 if base + "я" in index_lookup:
                     return base + "я"
 
+        # Составные с дефисом: арт-директорами → арт-директор (до verb_present)
+        if "-" in w:
+            for suf in ("ами", "ями", "ому", "ему", "ов", "ев", "ах", "ях", "а", "я", "у", "ю"):
+                if len(w) > len(suf) + 2 and w.endswith(suf):
+                    candidate = w[:-len(suf)]
+                    if candidate and word_ok.match(candidate):
+                        if candidate in index_lookup:
+                            return candidate
+                        c_yo = candidate.replace("е", "ё")
+                        if c_yo in index_lookup:
+                            return c_yo
+
         verb_past_suffixes = ("л", "ла", "ло", "ли")
         for suf in verb_past_suffixes:
             if len(w) > len(suf) + 2 and w.endswith(suf):
@@ -223,6 +235,38 @@ class DictionaryManager:
                 if picked:
                     return picked
 
+        # Причастия (до личных форм — -вший/-щий не должны матчиться с -й)
+        part_inf_endings = ["ть", "ти", "ить", "ать", "ять", "еть"]
+        participle_suffixes = [
+            ("ующий", part_inf_endings), ("ующая", part_inf_endings), ("ующее", part_inf_endings), ("ующие", part_inf_endings),
+            ("ющий", part_inf_endings), ("ющая", part_inf_endings), ("ющее", part_inf_endings), ("ющие", part_inf_endings),
+            ("ящий", part_inf_endings), ("ящая", part_inf_endings), ("ящее", part_inf_endings), ("ящие", part_inf_endings),
+            ("вший", part_inf_endings), ("вшая", part_inf_endings), ("вшее", part_inf_endings), ("вшие", part_inf_endings),
+            ("емый", part_inf_endings), ("емая", part_inf_endings), ("емое", part_inf_endings), ("емые", part_inf_endings),
+            ("омый", part_inf_endings), ("омая", part_inf_endings), ("омое", part_inf_endings), ("омые", part_inf_endings),
+            ("енный", part_inf_endings + ["ить", "еть"]), ("енная", part_inf_endings + ["ить", "еть"]),
+            ("ённый", part_inf_endings + ["ить", "еть"]), ("ённая", part_inf_endings + ["ить", "еть"]),
+            ("нный", part_inf_endings), ("нная", part_inf_endings), ("нное", part_inf_endings), ("нные", part_inf_endings),
+            ("тый", part_inf_endings + ["ь"]), ("тая", part_inf_endings + ["ь"]), ("тое", part_inf_endings + ["ь"]), ("тые", part_inf_endings + ["ь"]),
+        ]
+        for suf, endings in participle_suffixes:
+            if len(w) > len(suf) + 1 and w.endswith(suf):
+                stem = w[:-len(suf)]
+                if not stem or not word_ok.match(stem):
+                    continue
+                ends = list(dict.fromkeys(endings))
+                candidates = [stem + e + reflexive_tail for e in ends if e != "ь" or stem]
+                if "ь" in ends and stem and len(stem) > 1:
+                    candidates.append(stem[:-1] + "ть" + reflexive_tail)
+                trimmed = stem[:-1] if len(stem) > 2 else ""
+                if trimmed:
+                    candidates += [trimmed + e + reflexive_tail for e in ends if e != "ь"]
+                    if "ь" in ends:
+                        candidates.append(trimmed + "ть" + reflexive_tail)
+                picked = _pick_form(candidates)
+                if picked:
+                    return picked
+
         verb_present_suffixes = (
             "ете", "ёте", "ите",
             "ем", "ём", "им",
@@ -230,10 +274,12 @@ class DictionaryManager:
             "ешь", "ёшь", "ишь",
             "ет", "ёт", "ит",
             "у", "ю",
-            "й", "йте", "ьте",
+            "й", "йте", "ьте", "и", "ь",
         )
         for suf in verb_present_suffixes:
             if len(w) > len(suf) + 1 and w.endswith(suf):
+                if suf in ("ю", "у") and w.endswith("ную"):
+                    continue
                 stem = w[:-len(suf)]
                 if not stem or not word_ok.match(stem):
                     continue
