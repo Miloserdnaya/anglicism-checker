@@ -83,8 +83,11 @@ async def check_url(req: CheckUrlRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Не удалось загрузить URL: {e}")
 
-    words = extract_words_from_html(html)
-    results = [analyze_word(w, dict_manager) for w in words]
+    items = extract_words_from_html(html, with_positions=True)
+    results = [
+        analyze_word(item["word"], dict_manager, occurrences=item.get("occurrences"))
+        for item in items
+    ]
     return results
 
 
@@ -100,10 +103,13 @@ async def check_pdf(file: UploadFile = File(...)):
     if len(pdf_bytes) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Файл не должен превышать 50 МБ")
     try:
-        words = extract_words_from_pdf(pdf_bytes)
+        items = extract_words_from_pdf(pdf_bytes, with_positions=True)
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
-    results = [analyze_word(w, dict_manager) for w in words]
+    results = [
+        analyze_word(item["word"], dict_manager, occurrences=item.get("occurrences"))
+        for item in items
+    ]
     return results
 
 
@@ -241,7 +247,7 @@ def get_html() -> str:
             lastResults = data;
             const card = document.getElementById('results-card');
             const table = document.getElementById('results');
-            let html = '<tr><th>Слово</th><th>В словаре</th><th>В каком словаре</th><th>Рекомендация</th></tr>';
+            let html = '<tr><th>Слово</th><th>В словаре</th><th>В каком словаре</th><th>Рекомендация</th><th>Где находится</th></tr>';
             for (const row of data) {
                 const inDict = row.in_dict ? 'да' : 'нет';
                 const dictList = row.in_official_dicts && row.in_official_dicts.length
@@ -251,7 +257,13 @@ def get_html() -> str:
                     ? 'можно использовать' 
                     : (row.russian_equivalent ? 'замените на: ' + row.russian_equivalent : '—');
                 const inDictHtml = row.in_dict ? '<span class="ok">да</span>' : '<span class="anglicism">нет</span>';
-                html += `<tr><td>${row.word}</td><td>${inDictHtml}</td><td>${dictList}</td><td>${recommendation}</td></tr>`;
+                let where = '—';
+                if (row.occurrences && row.occurrences.length) {
+                    const first = row.occurrences[0];
+                    where = (first.page ? 'Стр. ' + first.page + ': ' : '') + (first.context || '');
+                    if (row.occurrences.length > 1) where += ' (+' + (row.occurrences.length - 1) + ')';
+                }
+                html += `<tr><td>${row.word}</td><td>${inDictHtml}</td><td>${dictList}</td><td>${recommendation}</td><td style="max-width:200px;font-size:0.85em">${where}</td></tr>`;
             }
             table.innerHTML = html;
             card.style.display = 'block';
@@ -260,14 +272,20 @@ def get_html() -> str:
         function downloadCSV() {
             if (!lastResults.length) return;
             const escape = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-            const header = 'Слово;В словаре;В каком словаре;Рекомендация';
+            const header = 'Слово;В словаре;В каком словаре;Рекомендация;Где находится';
             const rows = lastResults.map(r => {
                 const inDict = r.in_dict ? 'да' : 'нет';
                 const dictList = r.in_official_dicts?.length
                     ? [...new Set(r.in_official_dicts.map(d => d.dict))].join('; ')
                     : '—';
                 const rec = r.in_dict ? 'можно использовать' : (r.russian_equivalent ? 'замените на: ' + r.russian_equivalent : '—');
-                return [r.word, inDict, dictList, rec].map(escape).join(';');
+                let where = '—';
+                if (r.occurrences?.length) {
+                    const o = r.occurrences[0];
+                    where = (o.page ? 'Стр. ' + o.page + ': ' : '') + (o.context || '');
+                    if (r.occurrences.length > 1) where += ' (+' + (r.occurrences.length - 1) + ' вхождений)';
+                }
+                return [r.word, inDict, dictList, rec, where].map(escape).join(';');
             });
             const csv = '\\uFEFF' + header + '\\n' + rows.join('\\n');
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -297,27 +315,41 @@ def get_html() -> str:
 
 Выполнить замену слов (англицизмов), отсутствующих в официальных словарях 
 русского языка как государственного языка РФ, на рекомендуемые аналоги.
+Аналоги приведены из четырёх официальных словарей и могут использоваться.
 
-Словарь источников:
+Словари-источники аналогов:
 • Орфографический словарь (ИРЯ РАН)
 • Орфоэпический словарь (ИРЯ РАН)
 • Словарь иностранных слов (ИЛИ РАН)
 • Толковый словарь гос. языка РФ (СПбГУ)
 
 ═══════════════════════════════════════════════════════════════════
-2. СПИСОК ЗАМЕН
+2. ТЕЗИСЫ (СЛОВО ДЛЯ ЗАМЕНЫ → АНАЛОГ ИЗ СЛОВАРЯ, ГДЕ НАХОДИТСЯ)
 
 `;
             toReplace.forEach((r, i) => {
-                tz += `${i + 1}. «${r.word}» → заменить на: ${r.russian_equivalent}\n`;
+                const equivDict = r.equivalent_in_dicts && r.equivalent_in_dicts.length
+                    ? ' (в словаре: ' + r.equivalent_in_dicts.join('; ') + ')'
+                    : '';
+                tz += `${i + 1}. «${r.word}» → заменить на: ${r.russian_equivalent}${equivDict}\n`;
+                const occs = r.occurrences || [];
+                if (occs.length > 0) {
+                    occs.slice(0, 5).forEach(o => {
+                        const loc = o.page ? `Стр. ${o.page}: ` : '';
+                        tz += `   • ${loc}«${o.context || '—'}»\n`;
+                    });
+                    if (occs.length > 5) tz += `   • ... и ещё ${occs.length - 5} вхождений\n`;
+                } else {
+                    tz += `   • Найти вручную (учтите словоформы: падежи, числа, глагольные формы)\n`;
+                }
+                tz += '\n';
             });
             tz += `
 ═══════════════════════════════════════════════════════════════════
 3. ИНСТРУКЦИЯ ДЛЯ ИСПОЛНИТЕЛЯ
 
-• Найти в тексте все вхождения каждого слова из списка (учтите словоформы:
-  падежи, числа, глагольные формы — креатив, креативный, креативность и т.п.).
-• Заменить на рекомендуемый аналог с учётом контекста и стиля.
+• Заменить каждое слово на указанный аналог с учётом контекста и стиля.
+• Аналоги взяты из официальных словарей РФ — их можно использовать.
 • При необходимости скорректировать грамматику предложения после замены.
 • Слова, не попавшие в список, оставить без изменений (они уже в словаре).
 
@@ -325,7 +357,7 @@ def get_html() -> str:
 4. КОНТРОЛЬ
 
 По завершении работ проверить, что:
-— все указанные слова заменены;
+— все указанные слова заменены на аналоги из словарей;
 — текст читается естественно;
 — термины, имена собственные и устоявшиеся обозначения сохранены по смыслу.
 `;
