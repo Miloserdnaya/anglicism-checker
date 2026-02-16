@@ -309,6 +309,12 @@ class DictionaryManager:
                         stem[:-1] + "ать" + reflexive_tail,
                         stem[:-1] + "ять" + reflexive_tail,
                     ]
+                # Повелит. -й без ся: игнорируй → игнорировать
+                if suf == "й" and stem.endswith("й") and len(stem) > 2:
+                    candidates += [
+                        stem[:-1] + "ать" + reflexive_tail,
+                        stem[:-1] + "ять" + reflexive_tail,
+                    ]
                 picked = _pick_form(candidates)
                 if picked:
                     return picked
